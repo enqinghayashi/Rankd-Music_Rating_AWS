@@ -1,0 +1,25 @@
+# Keep docker build context small
+.git
+__pycache__
+*.py[cod]
+
+# Virtual environments (these are tracked in older commits; exclude from image builds)
+linux_env
+testenv
+.venv
+venv
+
+# Local env files
+.env
+*.env
+
+# Docs/assets not needed at runtime
+readme_images
+
+# Local/editor
+.vscode
+Thumbs.db
+.DS_Store
+
+# Test artifacts
+.pytest_cache

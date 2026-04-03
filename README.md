@@ -15,6 +15,40 @@ Once we've collected and calculated this data for the scores in our database and
   - If you do not have a Spotify Premium account but do have a free account and know of someone who does have a premium account, you can ask them to create the Spotify app and add you as a user and you will still be able to use this application.
   - In the submitted copy of this application a Spotify Premium account made with a 3 month free trial is provided soley for the purpose of testing this project, please refer to login_details.md for more information.
 
+## Quick Start (Docker)
+
+This project can be run locally or deployed in a consistent, scalable way using Docker (e.g. on AWS).
+
+1. Create your environment file (or export env vars)
+
+   - Copy `.env.example` to `.env` and fill in values.
+   - At minimum you must provide:
+     - `SPOTIFY_CLIENT_ID`
+     - `SPOTIFY_REDIRECT_URI`
+     - `SECRET_KEY`
+
+2. Build the image
+
+   ```
+   docker build -t rankd .
+   ```
+
+3. Run the container
+
+   ```
+   docker run --rm -p 5000:5000 --env-file .env rankd
+   ```
+
+4. Open the app
+
+   - http://127.0.0.1:5000
+
+### Deployment Notes (AWS)
+
+- Configure the same environment variables in your deployment target (ECS/EC2/Elastic Beanstalk).
+- If using Postgres (e.g. AWS RDS), set `DATABASE_URL` to a SQLAlchemy-compatible URL.
+  - Some platforms provide `postgres://...` which is automatically normalized to `postgresql://...`.
+
 ## Setting Up The Spotify API
 This project uses the Spotify API to obtain data about tracks, albums, and artists that a user searchs for as well as obtaining the user's top tracks and artists that is then used for analysis.
 
@@ -43,10 +77,16 @@ Click the user dropdown in the top right and click 'Dashboard'. You should see s
 Click the button that says 'Create app'. You should see the following:
 ![Spotify for Developers create app.](/readme_images/appsetup6.png)
 
-Now fill in the 'App name', 'App description' with anything you see fit. Under 'Redirect URIs' fill in the address 'http://127.0.0.1:5000/auth' and click the 'Add' button. This redirect uri is essential for the app to work, this is where Spotify redirects you to after you succeed or fail authorization.
+Now fill in the 'App name', 'App description' with anything you see fit. Under 'Redirect URIs' add the redirect URI your deployment uses.
+
+For local development this is typically:
+
+- `http://127.0.0.1:5000/auth`
+
+This redirect URI is essential for the app to work: Spotify redirects you back here after you succeed or fail authorization.
 ![Spotify for Developers create app redirect uri.](/readme_images/appsetup7.png)
 
-(NOTE: The port number 5000 can be changed if you are running the flask app on a different port. THE PORT NUMBER MUST BE THE SAME AS THE ONE THAT YOU ARE RUNNING THE FLASK APP ON. If you are running the app on a different port you will also have to change the `redirect_uri` in auth.py which we will detail later. YOU MAY NOT CHANGE THE '/auth' AT THE END OF THE REDIRECT URI, ONLY THE PORT IS ABLE TO BE CHANGED.)
+(NOTE: The port number 5000 can be changed if you run the app on a different port. The port must match where the app is actually reachable. You must keep the `/auth` suffix.)
 
 We will also need to check the 'Web API' box and agree to the terms of use.
 
@@ -57,12 +97,12 @@ Hit 'Save' and you should see a page that looks like this:
 ![Spotify for Developers app basic information.](/readme_images/appsetup9.png)
 
 ### Adding the Client ID to the Flask App
-Copy the Client ID from the page you are now on and navigate to /app/auth.py.
+Copy the Client ID from the page you are now on.
 ![auth.py screenshot](/readme_images/appsetup10.png)
 
-Inside the quotation marks of `self.client_id` place the Client ID you copied earlier and save the file.
+Set `SPOTIFY_CLIENT_ID` in your environment (recommended) or update `/app/auth.py`.
 
-(NOTE: If you changed the port of the redirect uri earlier you will also have to change it under `self.redirect_uri`).
+(NOTE: Set `SPOTIFY_REDIRECT_URI` to match the redirect URI you configured in the Spotify developer dashboard.)
 
 The Flask App will now be linked to your Spotify API app.
 

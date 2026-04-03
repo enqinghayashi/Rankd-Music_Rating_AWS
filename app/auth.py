@@ -1,4 +1,5 @@
 import random
+import os
 from Crypto.Hash import SHA256
 from base64 import b64encode
 from urllib.parse import urlencode
@@ -34,8 +35,10 @@ class BadRefreshTokenError(Exception):
 #region Token
 class AuthToken:
   def __init__(self):
-    self.client_id = "45ef5d2726a44fb3b06299adab1fb822"
-    self.redirect_uri = "http://127.0.0.1:5000/auth"
+    # Use environment variables in deployed environments (Docker/AWS) to avoid hard-coding.
+    # Defaults keep local development working.
+    self.client_id = os.environ.get("SPOTIFY_CLIENT_ID") or "5fde8f3f1dd64da78756642ebe41338a"
+    self.redirect_uri = os.environ.get("SPOTIFY_REDIRECT_URI") or "http://127.0.0.1:5000/auth"
     self.code_verifier = ""
     self.code_challenge = ""
     self.auth_code = ""
@@ -99,6 +102,8 @@ class AuthToken:
   def generateAuthURL(self):
     self.code_verifier = self.generateRandomString(128)
     self.code_challenge = self.generateCodeChallenge(self.code_verifier)
+    # Persist PKCE verifier across redirects (and across gunicorn workers/containers).
+    session['spotify_code_verifier'] = self.code_verifier
     url = "https://accounts.spotify.com/authorize"
     params = {
       "client_id": self.client_id,
@@ -117,6 +122,9 @@ class AuthToken:
   Uses the code obtained from the authorization to request an access token from the Spotify API.
   """
   def requestAccessToken(self):
+    code_verifier = session.get('spotify_code_verifier') or self.code_verifier
+    if not code_verifier:
+      raise UserNotAuthroizedError
     url = "https://accounts.spotify.com/api/token"
     headers = {
       "Content-Type": "application/x-www-form-urlencoded"
@@ -126,7 +134,7 @@ class AuthToken:
       "code": self.auth_code,
       "redirect_uri": self.redirect_uri,
       "client_id": self.client_id,
-      "code_verifier": self.code_verifier
+      "code_verifier": code_verifier
     }
     return requests.post(url, headers=headers, data=data)
   
@@ -136,8 +144,13 @@ class AuthToken:
   Stores the time the token was granted so that we can refresh the token before it expires.
   """
   def setCurrentToken(self, data):
+    if 'access_token' not in data:
+      raise Exception(f"Spotify token response missing access_token: {data}")
+
     self.access_token = data['access_token']
-    self.refresh_token = data['refresh_token']
+    # Refresh responses often omit refresh_token; keep the existing one in that case.
+    if 'refresh_token' in data and data['refresh_token']:
+      self.refresh_token = data['refresh_token']
     self.time_token_granted = datetime.now()
     self.storeToken()
     return self.time_token_granted
@@ -149,7 +162,17 @@ class AuthToken:
   def completeAuth(self, code):
     self.auth_code = code
     response = self.requestAccessToken()
-    data = response.json()
+    try:
+      data = response.json()
+    except Exception:
+      data = {"error": "non_json_response", "body": response.text}
+
+    if not response.ok:
+      print(data)
+      raise Exception(f"Spotify access token request failed: {data}")
+
+    # No longer needed after exchanging the auth code.
+    session.pop('spotify_code_verifier', None)
     return self.setCurrentToken(data)
 #endregion
 
@@ -158,6 +181,8 @@ class AuthToken:
   Request a token refresh from the Spotify API.
   """
   def requestTokenRefresh(self):
+    if not self.refresh_token:
+      raise UserNotAuthroizedError
     url = "https://accounts.spotify.com/api/token"
     headers = {
       "Content-Type": "application/x-www-form-urlencoded"
@@ -174,11 +199,18 @@ class AuthToken:
   """
   def refreshCurrentToken(self):
     response = self.requestTokenRefresh()
-    if response.status_code == 400:
-      print(response.text)
-      raise BadRefreshTokenError 
-    data = response.json()
-    print(data)
+    try:
+      data = response.json()
+    except Exception:
+      data = {"error": "non_json_response", "body": response.text}
+
+    if not response.ok:
+      print(data)
+      # Typically means we tried to refresh without a stored refresh token.
+      if data.get('error') == 'invalid_request' and 'refresh_token' in str(data.get('error_description', '')):
+        raise UserNotAuthroizedError
+      raise BadRefreshTokenError
+
     return self.setCurrentToken(data)
 #endergion
 
@@ -216,27 +248,21 @@ class AuthToken:
   """
   def restoreSessionToken(self):
     print("DEBUG: Attempting to restore session token")
-    try:
-      self.refresh_token = current_user.refresh_token
-      print("DEBUG: Session token FOUND")
-      try:
-        print("DEBUG: Attempting to refresh token")
-        try:
-          print("DEBUG: Attempting refresh")
-          self.refreshCurrentToken()
-          print("DEBUG: Refresh succesful")
-        except BadRefreshTokenError:
-          print("DEBUG: Refresh from session failed")
-          raise BadRefreshTokenError
-
-        self.refreshCurrentToken()
-      except BadRefreshTokenError:
-        print("DEBUG: Refresh from session token failed")
-        raise BadRefreshTokenError
-      return True
-    except KeyError:
+    refresh_token = session.get('refresh_token')
+    if not refresh_token:
       print("DEBUG: Session token NOT FOUND")
       return False
+
+    self.refresh_token = refresh_token
+    print("DEBUG: Session token FOUND")
+    try:
+      print("DEBUG: Attempting refresh")
+      self.refreshCurrentToken()
+      print("DEBUG: Refresh succesful")
+      return True
+    except BadRefreshTokenError:
+      print("DEBUG: Refresh from session token failed")
+      raise BadRefreshTokenError
 
   """
   Restores auth from database token. Assumes user is logged in.
@@ -245,16 +271,19 @@ class AuthToken:
   """
   def restoreDatabaseToken(self):
     print("DEBUG: Attemping to restore token from database")
-    try:
-      user_id = current_user.user_id
-      user = User.query.get(user_id)
-    except KeyError:
-      print("DEBUG: No user session token")
+    if not getattr(current_user, 'is_authenticated', False):
+      print("DEBUG: No authenticated user")
+      return False
+
+    user_id = current_user.user_id
+    user = User.query.get(user_id)
+    if user is None:
+      print("DEBUG: User not found")
       return False
     
     print("DEBUG: User session token found")
     refresh_token = user.refresh_token
-    if refresh_token == None:
+    if not refresh_token:
       print("DEBUG: No refresh token found")
       return False
     

@@ -1,0 +1,22 @@
+# Core Framework
+Flask
+Flask-SQLAlchemy
+Flask-Migrate
+Flask-Login
+Flask-WTF
+
+# Utilities & Validation
+email_validator
+requests
+pycryptodome
+
+# Data Analysis & Math (from analysis.py)
+numpy
+scipy
+scikit-learn
+
+# Production Server
+gunicorn
+
+# Database driver (for Postgres / AWS RDS)
+psycopg2-binary

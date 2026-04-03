@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+linux_env/
+testenv/
+
+# Environment files / secrets
+.env
+*.env
+
+# OS / editor
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local artifacts
+*.sqlite
+*.db
+*.log
+*.docx
