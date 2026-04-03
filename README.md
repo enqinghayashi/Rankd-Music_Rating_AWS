@@ -1,4 +1,4 @@
-# Music Rating App Project
+# Music Rating App Project (Deployed)
 
 ## Project Timeline & Attribution
 
